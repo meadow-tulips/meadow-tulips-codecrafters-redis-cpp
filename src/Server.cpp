@@ -11,7 +11,6 @@
 
 int main(int argc, char **argv) {
   // You can use print statements as follows for debugging, they'll be visible when running tests.
-  std::cout << "Logs from your program will appear here!\n";
   std::cout<<" Binding IP Address to a port"<<std::endl;
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (server_fd < 0) {
@@ -53,15 +52,25 @@ int main(int argc, char **argv) {
 
   std::cout<<"Client connected"<<std::endl;
 
-  std::string msg = "+PONG\r\n";
+  const char* msg = "+PONG\r\n";
+  char receivedBuffer[100];
 
-  const void* msg_buffer = msg.c_str();
+  ssize_t receivedBytes = recv(client_fd, receivedBuffer, sizeof(receivedBuffer), MSG_PEEK);
 
-  ssize_t sendBytes = send(client_fd, msg_buffer, sizeof(msg_buffer) - 1, MSG_EOR);
-
-  if(sendBytes == -1) {
-    std::cerr<<"Failed to send message"<<std::endl;
+  while(receivedBytes > 0) {
+      receivedBytes = recv(client_fd, receivedBuffer, sizeof(receivedBuffer), 0);
+      ssize_t sendBytes = send(client_fd, msg, strlen(msg), MSG_EOR);
+            if(sendBytes == -1) {
+          std::cerr<<"Failed to send message"<<std::endl;
+        } else {
+          std::cout<<"Successfully sent "<<sendBytes<<" bytes to the client"<<std::endl;
+        }
   }
+
+  
+
+  
+
 
 
   close(server_fd);
