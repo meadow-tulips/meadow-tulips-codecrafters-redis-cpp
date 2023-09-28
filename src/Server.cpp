@@ -7,6 +7,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include<vector>
 
 int main(int argc, char **argv) {
   // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -48,9 +49,19 @@ int main(int argc, char **argv) {
   int client_addr_len = sizeof(client_address);
 
 
-  accept(server_fd, (struct sockaddr* )&client_address, (socklen_t *) &client_addr_len);
+  int client_fd = accept(server_fd, (struct sockaddr* )&client_address, (socklen_t *) &client_addr_len);
 
   std::cout<<"Client connected"<<std::endl;
+
+  std::string msg = "+PONG\r\n";
+
+  const void* msg_buffer = msg.c_str();
+
+  ssize_t sendBytes = send(client_fd, msg_buffer, sizeof(msg_buffer) - 1, MSG_EOR);
+
+  if(sendBytes == -1) {
+    std::cerr<<"Failed to send message"<<std::endl;
+  }
 
 
   close(server_fd);
