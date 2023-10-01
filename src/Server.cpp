@@ -11,17 +11,56 @@
 #include<poll.h>
 
 
-void constructEventLoop(int fd_server) {
-  fd_set read_fds;
-  FD_ZERO(&read_fds);  
 
-  // Add a descriptor to an fd_set
-  FD_SET(fd_server, &read_fds);  
+void parseEchoCommand (char* stringBuffer, ssize_t size, int client_fd) {
 
-  // select(2, &read_fds);
+      int lookOutCharacters = 0;
+      bool isDollarFound = false;
+      std::string temporary = "";
+      std::string instruction = "";
+      std::string instructionArgument = "";
+      for(int i=0;i<size;i++) {
+        if(stringBuffer[i] == '$') {
+          isDollarFound = true;
+          continue;
+        }
 
+        if(isDollarFound) {
+          if(stringBuffer[i] == '\r' || stringBuffer[i] == '\n') {
+            isDollarFound = false;
+            lookOutCharacters = stoi(temporary);
+            temporary = "";
+          } else {
+            temporary += stringBuffer[i];
+          }
+          continue;
+        }
 
-  FD_ISSET(fd_server, &read_fds); 
+        if(stringBuffer[i] == '\r' || stringBuffer[i] == '\n')
+          continue;
+        
+        if(lookOutCharacters > 0) {
+          temporary += stringBuffer[i];
+          lookOutCharacters--;
+        }
+
+        if(lookOutCharacters == 0 && temporary == "echo") {
+          instruction = temporary;
+          temporary = "";
+        }
+
+        if(lookOutCharacters == 0 && instruction == "echo" && temporary != "") {
+          instructionArgument = ":" + temporary + "\r\n";
+          temporary = "";
+        }
+
+      }
+
+      if(instruction == "echo" && instructionArgument != "") {
+          std::cout<<instructionArgument<<" "<<&instructionArgument[0]<<std::endl;
+          send(client_fd, &instructionArgument[0], instructionArgument.size(), 0);
+      }
+
 }
 
 int main(int argc, char **argv) {
@@ -111,9 +150,6 @@ int main(int argc, char **argv) {
             int client_fd = connections[i].fd;
             ssize_t receivedBytes = recv(client_fd, receivedBuffer, sizeof(receivedBuffer), MSG_EOR);
             if(receivedBytes > 0) {
-              strstr(receivedBuffer, "PING\r\n");
-              std::cout<<"Messaged received"<<receivedBuffer<<std::endl;
-              std::cout<<"Message Ended"<<std::endl;
               const char* stringToSearch = "ping";
               char* result = strstr(receivedBuffer, stringToSearch);
               while(result != NULL) {
@@ -121,6 +157,11 @@ int main(int argc, char **argv) {
                 strcpy(result, "");
                 result = strstr(receivedBuffer, stringToSearch);
               }
+
+              // char incomingTest[] = "*2\r\n$4\r\necho\r\n$11\r\nwatermelons\r\n";
+
+              parseEchoCommand(receivedBuffer, receivedBytes, client_fd);
+
             }
           }
         }
