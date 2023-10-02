@@ -9,16 +9,17 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include<poll.h>
+#include<vector>
+#include<unordered_map>
 
 
-
-void parseEchoCommand (char* stringBuffer, ssize_t size, int client_fd) {
+void parseInstructions (char* stringBuffer, ssize_t size, int client_fd, std::unordered_map<std::string, std::string> &values) {
 
       int lookOutCharacters = 0;
       bool isDollarFound = false;
       std::string temporary = "";
       std::string instruction = "";
-      std::string instructionArgument = "";
+      std::vector<std::string> instructionArguments;
       for(int i=0;i<size;i++) {
         if(stringBuffer[i] == '$') {
           isDollarFound = true;
@@ -28,6 +29,7 @@ void parseEchoCommand (char* stringBuffer, ssize_t size, int client_fd) {
         if(isDollarFound) {
           if(stringBuffer[i] == '\r' || stringBuffer[i] == '\n') {
             isDollarFound = false;
+            // std::cout<<temporary<<" "<<i<<"-i"<<std::endl;
             lookOutCharacters = stoi(temporary);
             temporary = "";
           } else {
@@ -44,21 +46,41 @@ void parseEchoCommand (char* stringBuffer, ssize_t size, int client_fd) {
           lookOutCharacters--;
         }
 
-        if(lookOutCharacters == 0 && temporary == "echo") {
+        if(lookOutCharacters == 0 && instruction == "" && temporary != "") {
           instruction = temporary;
           temporary = "";
         }
 
-        if(lookOutCharacters == 0 && instruction == "echo" && temporary != "") {
-          instructionArgument = ":" + temporary + "\r\n";
+        if(lookOutCharacters == 0 && instruction != "" && temporary != "") {
+          // instructionArgument = ":" + temporary + "\r\n";
+          instructionArguments.push_back(temporary);
           temporary = "";
         }
 
       }
 
-      if(instruction == "echo" && instructionArgument != "") {
-          std::cout<<instructionArgument<<" "<<&instructionArgument[0]<<std::endl;
-          send(client_fd, &instructionArgument[0], instructionArgument.size(), 0);
+
+      if(instruction == "ping") {
+        const char* msg = "+PONG\r\n";
+        send(client_fd, msg, strlen(msg), 0);
+      }
+
+      if(instruction == "echo" && instructionArguments.size() > 0) {
+          std::string argument = ":" + instructionArguments[0] + "\r\n";
+          send(client_fd, &argument[0], argument.length(), 0);
+      }
+
+      if(instruction == "set" && instructionArguments.size() > 1) {
+        values[instructionArguments[0]] = instructionArguments[1];
+        const char * msg = ":OK\r\n";
+        send(client_fd, msg, strlen(msg), 0);
+      }
+
+      if(instruction == "get" && instructionArguments.size() > 0) {
+        if(values.find(instructionArguments[0]) != values.end()) { 
+          std::string val = ":" + values.at(instructionArguments[0]) + "\r\n";
+          send(client_fd, &val[0], val.length(), 0);
+        }
       }
 
 }
@@ -87,6 +109,7 @@ int main(int argc, char **argv) {
     return 1;
   }
   
+  std::unordered_map<std::string, std::string> values;
   struct sockaddr_in server_addr;
   server_addr.sin_family = AF_INET;
   server_addr.sin_addr.s_addr = INADDR_ANY;
@@ -150,18 +173,7 @@ int main(int argc, char **argv) {
             int client_fd = connections[i].fd;
             ssize_t receivedBytes = recv(client_fd, receivedBuffer, sizeof(receivedBuffer), MSG_EOR);
             if(receivedBytes > 0) {
-              const char* stringToSearch = "ping";
-              char* result = strstr(receivedBuffer, stringToSearch);
-              while(result != NULL) {
-                send(client_fd, msg, strlen(msg), MSG_EOR);
-                strcpy(result, "");
-                result = strstr(receivedBuffer, stringToSearch);
-              }
-
-              // char incomingTest[] = "*2\r\n$4\r\necho\r\n$11\r\nwatermelons\r\n";
-
-              parseEchoCommand(receivedBuffer, receivedBytes, client_fd);
-
+              parseInstructions(receivedBuffer, receivedBytes, client_fd, values);
             }
           }
         }
