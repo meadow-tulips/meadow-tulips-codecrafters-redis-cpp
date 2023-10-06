@@ -9,110 +9,8 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <poll.h>
-#include <vector>
-#include <unordered_map>
 #include <chrono>
-
-void parseInstructions(char *stringBuffer, ssize_t size, int client_fd, std::unordered_map<std::string, std::pair<std::string, std::chrono::system_clock::duration>> &values, std::chrono::system_clock::duration currentTime)
-{
-  int lookOutCharacters = 0;
-  bool isDollarFound = false;
-  std::string temporary = "";
-  std::string instruction = "";
-  std::vector<std::string> instructionArguments;
-  for (int i = 0; i < size; i++)
-  {
-    if (stringBuffer[i] == '$')
-    {
-      isDollarFound = true;
-      continue;
-    }
-
-    if (isDollarFound)
-    {
-      if (stringBuffer[i] == '\r' || stringBuffer[i] == '\n')
-      {
-        isDollarFound = false;
-        lookOutCharacters = stoi(temporary);
-        temporary = "";
-      }
-      else
-      {
-        temporary += stringBuffer[i];
-      }
-      continue;
-    }
-
-    if (stringBuffer[i] == '\r' || stringBuffer[i] == '\n')
-      continue;
-
-    if (lookOutCharacters > 0)
-    {
-      temporary += stringBuffer[i];
-      lookOutCharacters--;
-    }
-
-    if (lookOutCharacters == 0 && instruction == "" && temporary != "")
-    {
-      instruction = temporary;
-      temporary = "";
-    }
-
-    if (lookOutCharacters == 0 && instruction != "" && temporary != "")
-    {
-      instructionArguments.push_back(temporary);
-      temporary = "";
-    }
-  }
-
-  if (instruction == "ping")
-  {
-    const char *msg = "+PONG\r\n";
-    send(client_fd, msg, strlen(msg), 0);
-  }
-  else if (instruction == "echo" && instructionArguments.size() > 0)
-  {
-    std::string argument = ":" + instructionArguments[0] + "\r\n";
-    send(client_fd, &argument[0], argument.length(), 0);
-  }
-  else if (instruction == "set" && instructionArguments.size() > 1)
-  {
-    std::chrono::milliseconds ms(0);
-
-    if (instructionArguments.size() > 3 && instructionArguments[2] == "px")
-      ms = std::chrono::milliseconds(stoi(instructionArguments[3]));
-
-    const auto now = std::chrono::system_clock::now().time_since_epoch();
-
-    std::chrono::system_clock::duration expiry = ms.count() == 0 ? ms : now + ms;
-    std::pair<std::string, std::chrono::system_clock::duration> valueWithExpiry = std::make_pair(instructionArguments[1], expiry);
-    values[instructionArguments[0]] = valueWithExpiry;
-
-    const char *msg = ":OK\r\n";
-    send(client_fd, msg, strlen(msg), 0);
-  }
-  else if (instruction == "get" && instructionArguments.size() > 0)
-  {
-    if (values.find(instructionArguments[0]) != values.end())
-    {
-      auto tup = values.at(instructionArguments[0]);
-
-      std::string instructionToSend = std::get<0>(tup);
-      std::chrono::system_clock::duration expiration = std::get<1>(tup);
-
-      if (expiration.count() == 0 || expiration > currentTime)
-      {
-        std::string val = ":" + instructionToSend + "\r\n";
-        send(client_fd, &val[0], val.length(), 0);
-      }
-      else
-      {
-        std::string val = "$-1\r\n";
-        send(client_fd, &val[0], val.length(), 0);
-      }
-    }
-  }
-}
+#include "Parser/parser.h"
 
 int main(int argc, char **argv)
 {
@@ -138,7 +36,9 @@ int main(int argc, char **argv)
     return 1;
   }
 
-  std::unordered_map<std::string, std::pair<std::string, std::chrono::system_clock::duration>> values;
+  std::unordered_set<DataEntity, DataEntityHashFunction> entitiesCollection;
+  entitiesCollection.clear();
+
   struct sockaddr_in server_addr;
   server_addr.sin_family = AF_INET;
   server_addr.sin_addr.s_addr = INADDR_ANY;
@@ -189,6 +89,7 @@ int main(int argc, char **argv)
             struct pollfd *pollFdsCollectionCopy = pollFdsCollection;
             pollFdsCollection = new struct pollfd[connection_count]();
             memcpy(pollFdsCollection, pollFdsCollectionCopy, (connection_count - 1) * sizeof(*pollFdsCollectionCopy));
+            delete[] pollFdsCollectionCopy;
             pollFdsCollection[connection_count - 1].fd = client_fd;
             pollFdsCollection[connection_count - 1].events = POLLIN;
             std::cout << "Client connected" << std::endl;
@@ -196,12 +97,17 @@ int main(int argc, char **argv)
           else
           {
             // Thats our clients
-            const auto now = std::chrono::system_clock::now().time_since_epoch();
             char receivedBuffer[100];
             int client_fd = pollFdsCollection[i].fd;
             ssize_t receivedBytes = recv(client_fd, receivedBuffer, sizeof(receivedBuffer), 0);
             if (receivedBytes > 0)
-              parseInstructions(receivedBuffer, receivedBytes, client_fd, values, now);
+            {
+              Parser _parser(receivedBuffer);
+              std::string response = _parser.recursivelyParseTokens(0, "", "", entitiesCollection);
+
+              if (response != "")
+                send(client_fd, &response[0], response.length(), 0);
+            }
           }
         }
       }
