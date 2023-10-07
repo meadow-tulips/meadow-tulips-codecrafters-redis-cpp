@@ -16,7 +16,21 @@ int main(int argc, char **argv)
 {
   // You can use print statements as follows for debugging, they'll be visible when running tests.
 
+  std::unordered_set<DataEntity, DataEntityHashFunction> entitiesCollection;
+  entitiesCollection.clear();
+
   std::cout << " Binding IP Address to a port" << std::endl;
+  for (int i = 1; i < argc; i++)
+  {
+    std::string arg = argv[i - 1];
+    if (arg == "--dir" || arg == "--dbfilename")
+    {
+      std::string optionType = arg.substr(2, arg.length());
+      std::string value = argv[i];
+      entitiesCollection.insert(DataEntity(optionType, value));
+    }
+  }
+
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
   if (server_fd < 0)
@@ -35,10 +49,6 @@ int main(int argc, char **argv)
     std::cerr << "setsockopt failed\n";
     return 1;
   }
-
-  std::unordered_set<DataEntity, DataEntityHashFunction> entitiesCollection;
-  entitiesCollection.clear();
-
   struct sockaddr_in server_addr;
   server_addr.sin_family = AF_INET;
   server_addr.sin_addr.s_addr = INADDR_ANY;
@@ -103,6 +113,7 @@ int main(int argc, char **argv)
             if (receivedBytes > 0)
             {
               Parser _parser(receivedBuffer);
+              // std::cout << receivedBuffer << std::endl;
               std::string response = _parser.recursivelyParseTokens(0, "", "", entitiesCollection);
 
               if (response != "")
