@@ -1,8 +1,10 @@
 #include "parser.h"
 #include <fstream>
+#include <iterator>
 #include <cctype>
 
 void gatherAllInformationFromFile(std::vector<unsigned char> fileData, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection);
+std::string findAllFilesRelatedEntityCollection(std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection);
 
 Parser::Parser() {}
 
@@ -35,17 +37,20 @@ void Parser::setTokens(std::string statement)
 
 void Parser::readFileAndGatherInformation(std::string filePath, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
 {
-    std::fstream fs;
-    fs.open(filePath, fs.binary | fs.in);
+    std::ifstream fs(filePath, std::ios::binary);
 
     if (fs.is_open())
     {
+        fs.unsetf(std::ios::skipws);
+        std::streampos fileSize;
         fs.seekg(0, std::ios::end);
-        auto fileSize = fs.tellg();
+        fileSize = fs.tellg();
         fs.seekg(0, std::ios::beg);
-        fileData.resize(fileSize);
+        fileData.reserve(fileSize);
         // read the data:
-        fs.read((char *)&fileData[0], fileSize);
+        fileData.insert(fileData.begin(),
+                        std::istream_iterator<unsigned char>(fs),
+                        std::istream_iterator<unsigned char>());
         gatherAllInformationFromFile(fileData, entityCollection);
     }
 
@@ -112,19 +117,22 @@ std::string Parser::parseSetCommand(int startIndex, std::unordered_set<DataEntit
 
 std::string Parser::parseGetCommand(std::string entityKey, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
 {
-    std::unordered_set<DataEntity, DataEntityHashFunction>::iterator foundEntity = entityCollection.find(DataEntity(entityKey));
-    if (foundEntity != entityCollection.end() && !foundEntity->isEntityExpired())
-    {
-        std::string msg = foundEntity->getValue();
-        if (entityKey == "*")
-            return "*1\r\n$" + std::to_string(msg.length()) + "\r\n" + msg + "\r\n";
-        if (entityKey != supportedKeywords[5] && entityKey != supportedKeywords[6])
-            return "$" + std::to_string(msg.length()) + "\r\n" + msg + "\r\n";
-        else
-            return "*2\r\n$" + std::to_string(entityKey.length()) + "\r\n" + entityKey + "\r\n" + "$" + std::to_string(msg.length()) + "\r\n" + msg + "\r\n";
-    }
+    if (entityKey == "*")
+        return findAllFilesRelatedEntityCollection(entityCollection);
     else
-        return "$-1\r\n";
+    {
+        std::unordered_set<DataEntity, DataEntityHashFunction>::iterator foundEntity = entityCollection.find(DataEntity(entityKey));
+        if (foundEntity != entityCollection.end() && !foundEntity->isEntityExpired())
+        {
+            std::string msg = foundEntity->getValue();
+            if (entityKey != supportedKeywords[5] && entityKey != supportedKeywords[6])
+                return "$" + std::to_string(msg.length()) + "\r\n" + msg + "\r\n";
+            else
+                return "*2\r\n$" + std::to_string(entityKey.length()) + "\r\n" + entityKey + "\r\n" + "$" + std::to_string(msg.length()) + "\r\n" + msg + "\r\n";
+        }
+        else
+            return "$-1\r\n";
+    }
 }
 
 void gatherAllInformationFromFile(std::vector<unsigned char> fileData, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
@@ -155,17 +163,40 @@ void gatherAllInformationFromFile(std::vector<unsigned char> fileData, std::unor
             {
                 if (key != "" && value != "")
                 {
-                    entityCollection.insert(DataEntity(key, value));
+                    entityCollection.insert(DataEntity(key, value, true));
                     key = "";
                     value = "";
                     shouldInsertValue = false;
                 }
                 else if (key != "" && value == "")
                 {
-                    entityCollection.insert(DataEntity("*", key));
                     shouldInsertValue = true;
                 }
             }
         }
     }
+}
+
+std::string findAllFilesRelatedEntityCollection(std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
+{
+    std::string response;
+    int count = 0;
+    for (std::unordered_set<DataEntity, DataEntityHashFunction>::iterator it = entityCollection.begin(); it != entityCollection.end(); it++)
+    {
+        if (it->isEntityFileRelated())
+        {
+            count++;
+
+            std::string key = it->getKey();
+            std::string val = it->getValue();
+            response += "$" + std::to_string(key.length()) + "\r\n" + key + "\r\n";
+        }
+    }
+
+    if (count > 0)
+    {
+        return "*" + std::to_string(count) + "\r\n" + response;
+    }
+    else
+        return "";
 }

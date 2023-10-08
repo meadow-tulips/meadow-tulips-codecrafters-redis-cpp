@@ -1,5 +1,22 @@
 #include "dataEntity.h"
 
+DataEntity::DataEntity(std::string key)
+{
+    dataKey = key;
+}
+
+bool DataEntity::operator==(const DataEntity &t) const
+{
+    return dataKey == t.dataKey;
+}
+
+DataEntity::DataEntity(std::string key, std::string value, bool fromFile)
+{
+    dataKey = key;
+    dataValue = value;
+    isFileEntity = fromFile;
+}
+
 DataEntity::DataEntity(std::string key, std::string value, std::string exp)
 {
     dataKey = key;
@@ -12,19 +29,14 @@ DataEntity::DataEntity(std::string key, std::string value, std::string exp)
     }
 }
 
-DataEntity::DataEntity(std::string key)
-{
-    dataKey = key;
-}
-
-bool DataEntity::operator==(const DataEntity &t) const
-{
-    return dataKey == t.dataKey;
-}
-
 bool DataEntity::operator!=(const DataEntity &other) const
 {
     return !operator==(other);
+}
+
+bool DataEntity::isEntityFileRelated() const
+{
+    return isFileEntity;
 }
 
 bool DataEntity::isEntityExpired() const
@@ -37,3 +49,4 @@ bool DataEntity::isEntityExpired() const
 }
 
 std::string DataEntity::getValue() const { return dataValue; }
+std::string DataEntity::getKey() const { return dataKey; }
