@@ -2,13 +2,17 @@
 #include <fstream>
 #include <cctype>
 
-std::string parseSetEntity(std::vector<std::string> tokens, int startIndex, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection);
-std::string parseGetEntity(std::string entityKey, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection, std::string supportedKeywords[]);
-std::string readFileAndGetKeys(std::string fileName);
+void gatherAllInformationFromFile(std::vector<unsigned char> fileData, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection);
 
 Parser::Parser() {}
 
 Parser::Parser(std::string statement) { setTokens(statement); }
+Parser::Parser(std::string statement, std::string filePath, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
+{
+    setTokens(statement);
+    readFileAndGatherInformation(filePath, entityCollection);
+}
+
 std::vector<std::string> Parser::getTokens() { return tokens; }
 
 void Parser::setTokens(std::string statement)
@@ -29,6 +33,25 @@ void Parser::setTokens(std::string statement)
     tokens.push_back(statement.substr(startIndex));
 }
 
+void Parser::readFileAndGatherInformation(std::string filePath, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
+{
+    std::fstream fs;
+    fs.open(filePath, fs.binary | fs.in);
+
+    if (fs.is_open())
+    {
+        fs.seekg(0, std::ios::end);
+        auto fileSize = fs.tellg();
+        fs.seekg(0, std::ios::beg);
+        fileData.resize(fileSize);
+        // read the data:
+        fs.read((char *)&fileData[0], fileSize);
+        gatherAllInformationFromFile(fileData, entityCollection);
+    }
+
+    fs.close();
+}
+
 std::string Parser::recursivelyParseTokens(int index, std::string message, std::string foundKeyword, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
 {
     if (index >= tokens.size() - 1)
@@ -38,11 +61,11 @@ std::string Parser::recursivelyParseTokens(int index, std::string message, std::
         if (foundKeyword == supportedKeywords[1])
             return recursivelyParseTokens(index + 1, message + tokens[index] + "\r\n", foundKeyword, entityCollection);
         else if (foundKeyword == supportedKeywords[2])
-            return parseSetEntity(tokens, index, entityCollection);
+            return parseSetCommand(index, entityCollection);
         else if (foundKeyword == supportedKeywords[3] || foundKeyword == supportedKeywords[4] || foundKeyword == supportedKeywords[7])
         {
             if ((!tokens[index].starts_with("$") && tokens[index] != supportedKeywords[3]))
-                return parseGetEntity(tokens[index], entityCollection, supportedKeywords);
+                return parseGetCommand(tokens[index], entityCollection);
         }
         return recursivelyParseTokens(index + 1, message, foundKeyword, entityCollection);
     }
@@ -64,7 +87,7 @@ std::string Parser::recursivelyParseTokens(int index, std::string message, std::
     }
 }
 
-std::string parseSetEntity(std::vector<std::string> tokens, int startIndex, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
+std::string Parser::parseSetCommand(int startIndex, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
 {
     if (startIndex + 7 < tokens.size())
     {
@@ -87,27 +110,15 @@ std::string parseSetEntity(std::vector<std::string> tokens, int startIndex, std:
     return "";
 }
 
-std::string parseGetEntity(std::string key, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection, std::string supportedKeywords[])
+std::string Parser::parseGetCommand(std::string entityKey, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
 {
-    std::string entityKey = key == "*" ? "dir" : key;
     std::unordered_set<DataEntity, DataEntityHashFunction>::iterator foundEntity = entityCollection.find(DataEntity(entityKey));
     if (foundEntity != entityCollection.end() && !foundEntity->isEntityExpired())
     {
         std::string msg = foundEntity->getValue();
-        if (key == "*")
-        {
-            std::unordered_set<DataEntity, DataEntityHashFunction>::iterator rdbFile = entityCollection.find(DataEntity("dbfilename"));
-            if (rdbFile != entityCollection.end())
-            {
-                std::string fullPath = foundEntity->getValue() + "/" + rdbFile->getValue();
-                return readFileAndGetKeys(fullPath);
-            }
-            else
-            {
-                return "";
-            }
-        }
-        else if (entityKey != supportedKeywords[5] && entityKey != supportedKeywords[6])
+        if (entityKey == "*")
+            return "*1\r\n$" + std::to_string(msg.length()) + "\r\n" + msg + "\r\n";
+        if (entityKey != supportedKeywords[5] && entityKey != supportedKeywords[6])
             return "$" + std::to_string(msg.length()) + "\r\n" + msg + "\r\n";
         else
             return "*2\r\n$" + std::to_string(entityKey.length()) + "\r\n" + entityKey + "\r\n" + "$" + std::to_string(msg.length()) + "\r\n" + msg + "\r\n";
@@ -116,50 +127,45 @@ std::string parseGetEntity(std::string key, std::unordered_set<DataEntity, DataE
         return "$-1\r\n";
 }
 
-std::string readFileAndGetKeys(std::string filePath)
+void gatherAllInformationFromFile(std::vector<unsigned char> fileData, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
 {
-    std::fstream fs;
-    fs.open(filePath, fs.binary | fs.in);
+    char delimiter = '@';
+    int delimiterIndex = -1;
+    std::string key;
+    std::string value;
+    bool shouldInsertValue = false;
 
-    if (fs.is_open())
+    for (int i = 0; i < fileData.size(); i++)
     {
-        fs.seekg(0, std::ios::end);
-        auto fileSize = fs.tellg();
-        fs.seekg(0, std::ios::beg);
-
-        // read the data:
-        std::vector<unsigned char> fileData(fileSize);
-        fs.read((char *)&fileData[0], fileSize);
-
-        char delimiter = '@';
-        int delimiterIndex = -1;
-        std::string value;
-
-        for (int i = 0; i < fileData.size(); i++)
+        if (delimiterIndex < 0)
         {
-            if (delimiterIndex < 0)
+            if (fileData[i] == '@')
+                delimiterIndex = i;
+        }
+        else
+        {
+            if (isalpha(fileData[i]))
             {
-                if (fileData[i] == '@')
-                    delimiterIndex = i;
+                if (!shouldInsertValue)
+                    key += fileData[i];
                 else
-                    continue;
+                    value += fileData[i];
             }
             else
             {
-                if (isalpha(fileData[i]))
-                    value += fileData[i];
-                else
+                if (key != "" && value != "")
                 {
-                    if (value == "")
-                        continue;
-                    break;
+                    entityCollection.insert(DataEntity(key, value));
+                    key = "";
+                    value = "";
+                    shouldInsertValue = false;
+                }
+                else if (key != "" && value == "")
+                {
+                    entityCollection.insert(DataEntity("*", key));
+                    shouldInsertValue = true;
                 }
             }
         }
-
-        if (value != "")
-            return "*1\r\n$" + std::to_string(value.length()) + "\r\n" + value + "\r\n";
-        return "";
     }
-    return "";
 }

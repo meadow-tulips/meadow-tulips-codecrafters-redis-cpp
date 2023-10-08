@@ -17,6 +17,7 @@ int main(int argc, char **argv)
   // You can use print statements as follows for debugging, they'll be visible when running tests.
 
   std::unordered_set<DataEntity, DataEntityHashFunction> entitiesCollection;
+  std::string fullFilePath = "";
   entitiesCollection.clear();
 
   std::cout << " Binding IP Address to a port" << std::endl;
@@ -28,6 +29,7 @@ int main(int argc, char **argv)
       std::string optionType = arg.substr(2, arg.length());
       std::string value = argv[i];
       entitiesCollection.insert(DataEntity(optionType, value));
+      fullFilePath += (fullFilePath == "" ? value : "/" + value);
     }
   }
 
@@ -112,8 +114,7 @@ int main(int argc, char **argv)
             ssize_t receivedBytes = recv(client_fd, receivedBuffer, sizeof(receivedBuffer), 0);
             if (receivedBytes > 0)
             {
-              Parser _parser(receivedBuffer);
-              // std::cout << receivedBuffer << std::endl;
+              Parser _parser(receivedBuffer, fullFilePath, entitiesCollection);
               std::string response = _parser.recursivelyParseTokens(0, "", "", entitiesCollection);
 
               if (response != "")
