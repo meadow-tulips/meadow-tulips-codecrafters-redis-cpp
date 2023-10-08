@@ -10,7 +10,7 @@ class Parser
 {
 
     std::vector<std::string> tokens;
-    std::string supportedKeywords[7] = {"ping", "echo", "set", "get", "config", "dir", "dbfilename"};
+    std::string supportedKeywords[8] = {"ping", "echo", "set", "get", "config", "dir", "dbfilename", "keys"};
 
 public:
     Parser();
