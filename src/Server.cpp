@@ -1,4 +1,5 @@
 #include <iostream>
+#include <fstream>
 #include <cstdlib>
 #include <string>
 #include <cstring>
@@ -9,8 +10,88 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <poll.h>
-#include <chrono>
+#include <cstdint>
+#include <iomanip>
 #include "Parser/parser.h"
+
+unsigned int ToHex(char x)
+{
+  return (0xff & (unsigned int)x);
+}
+bool isMagicString(char *temp)
+{
+  if (strlen(temp) == 5)
+  {
+    const char *s = "REDIS";
+    for (int i = 0; i < strlen(temp); i++)
+    {
+      if (ToHex(temp[i]) != ToHex(s[i]))
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+  return false;
+}
+
+void getNextCharacterAndSkipBytes(std::fstream &fs)
+{
+  char nextCharacter;
+  fs.read(&nextCharacter, 1);
+  fs.seekg((int)nextCharacter, std::ios_base::cur);
+}
+
+char *getNextCharacterAndGatherBytes(std::fstream &fs)
+{
+  char nextCharacter;
+  fs.read(&nextCharacter, 1);
+  int i = 0;
+  char *word = new char[((int)nextCharacter) + 1]();
+  fs.read(word, nextCharacter);
+
+  return word;
+}
+
+void parseRDB(std::fstream &fs, std::streampos fileSize, std::unordered_set<DataEntity, DataEntityHashFunction> &entitiesCollection)
+{
+  // Begin reading  MAGIC word first
+  char *buffer = new char[6]();
+  fs.read(buffer, 5);
+  if (!isMagicString(buffer))
+  {
+    std::cout << "Not a redis rdb file" << std::endl;
+    return;
+  }
+  fs.seekg(4, std::ios_base::cur);
+  char characterInMemory;
+  while (fs.tellg() < fileSize && (ToHex(characterInMemory) != 0xFF))
+  {
+    fs.read(&characterInMemory, 1);
+    if (ToHex(characterInMemory) == 0xFA)
+    {
+      getNextCharacterAndSkipBytes(fs);
+    }
+    else if (ToHex(characterInMemory) == 0xFB)
+    {
+      fs.read(&characterInMemory, 1);
+      int reservedPairs = int(characterInMemory);
+      fs.seekg(1, std::ios::cur);
+      int counter = 0;
+      while (counter < reservedPairs)
+      {
+        fs.read(&characterInMemory, 1);
+        if ((ToHex(characterInMemory) == 0xFF))
+          break;
+        std::string key = getNextCharacterAndGatherBytes(fs);
+        std::string value = getNextCharacterAndGatherBytes(fs);
+        std::cout << key << " keyValuePairs " << value << std::endl;
+        entitiesCollection.insert(DataEntity(key, value, true));
+        counter++;
+      }
+    }
+  }
+}
 
 int main(int argc, char **argv)
 {
@@ -29,8 +110,26 @@ int main(int argc, char **argv)
       std::string optionType = arg.substr(2, arg.length());
       std::string value = argv[i];
       entitiesCollection.insert(DataEntity(optionType, value));
+
       fullFilePath += (fullFilePath == "" ? value : "/" + value);
     }
+  }
+
+  std::fstream fs{fullFilePath, std::ios_base::binary | std::ios_base::in};
+  std::streampos fileSize;
+
+  if (fs.is_open())
+  {
+    std::cout << "File is opened" << std::endl;
+    fs.seekg(0, std::ios_base::end);
+
+    fileSize = fs.tellg();
+    fs.seekg(0, std::ios::beg);
+    parseRDB(fs, fileSize, entitiesCollection);
+  }
+  else
+  {
+    std::cout << "Failure! File open Failed." << std::endl;
   }
 
   int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -114,7 +213,7 @@ int main(int argc, char **argv)
             ssize_t receivedBytes = recv(client_fd, receivedBuffer, sizeof(receivedBuffer), 0);
             if (receivedBytes > 0)
             {
-              Parser _parser(receivedBuffer, fullFilePath, entitiesCollection);
+              Parser _parser(receivedBuffer);
               std::string response = _parser.recursivelyParseTokens(0, "", "", entitiesCollection);
 
               if (response != "")

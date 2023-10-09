@@ -1,19 +1,12 @@
 #include "parser.h"
-#include <fstream>
 #include <iterator>
 #include <cctype>
 
-void gatherAllInformationFromFile(std::vector<unsigned char> fileData, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection);
 std::string findAllFilesRelatedEntityCollection(std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection);
 
 Parser::Parser() {}
 
 Parser::Parser(std::string statement) { setTokens(statement); }
-Parser::Parser(std::string statement, std::string filePath, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
-{
-    setTokens(statement);
-    readFileAndGatherInformation(filePath, entityCollection);
-}
 
 std::vector<std::string> Parser::getTokens() { return tokens; }
 
@@ -33,28 +26,6 @@ void Parser::setTokens(std::string statement)
     }
 
     tokens.push_back(statement.substr(startIndex));
-}
-
-void Parser::readFileAndGatherInformation(std::string filePath, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
-{
-    std::ifstream fs(filePath, std::ios::binary);
-
-    if (fs.is_open())
-    {
-        fs.unsetf(std::ios::skipws);
-        std::streampos fileSize;
-        fs.seekg(0, std::ios::end);
-        fileSize = fs.tellg();
-        fs.seekg(0, std::ios::beg);
-        fileData.reserve(fileSize);
-        // read the data:
-        fileData.insert(fileData.begin(),
-                        std::istream_iterator<unsigned char>(fs),
-                        std::istream_iterator<unsigned char>());
-        gatherAllInformationFromFile(fileData, entityCollection);
-    }
-
-    fs.close();
 }
 
 std::string Parser::recursivelyParseTokens(int index, std::string message, std::string foundKeyword, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
@@ -132,48 +103,6 @@ std::string Parser::parseGetCommand(std::string entityKey, std::unordered_set<Da
         }
         else
             return "$-1\r\n";
-    }
-}
-
-void gatherAllInformationFromFile(std::vector<unsigned char> fileData, std::unordered_set<DataEntity, DataEntityHashFunction> &entityCollection)
-{
-    char delimiter = '@';
-    int delimiterIndex = -1;
-    std::string key;
-    std::string value;
-    bool shouldInsertValue = false;
-
-    for (int i = 0; i < fileData.size(); i++)
-    {
-        if (delimiterIndex < 0)
-        {
-            if (fileData[i] == '@')
-                delimiterIndex = i;
-        }
-        else
-        {
-            if (isalpha(fileData[i]))
-            {
-                if (!shouldInsertValue)
-                    key += fileData[i];
-                else
-                    value += fileData[i];
-            }
-            else
-            {
-                if (key != "" && value != "")
-                {
-                    entityCollection.insert(DataEntity(key, value, true));
-                    key = "";
-                    value = "";
-                    shouldInsertValue = false;
-                }
-                else if (key != "" && value == "")
-                {
-                    shouldInsertValue = true;
-                }
-            }
-        }
     }
 }
 
