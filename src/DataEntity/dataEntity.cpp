@@ -10,22 +10,15 @@ bool DataEntity::operator==(const DataEntity &t) const
     return dataKey == t.dataKey;
 }
 
-DataEntity::DataEntity(std::string key, std::string value, bool fromFile)
+DataEntity::DataEntity(std::string key, std::string value, bool fromFile, std::string exp)
 {
     dataKey = key;
     dataValue = value;
     isFileEntity = fromFile;
-}
-
-DataEntity::DataEntity(std::string key, std::string value, std::string exp)
-{
-    dataKey = key;
-    dataValue = value;
-
     if (exp.length())
     {
         std::chrono::system_clock::duration now = std::chrono::system_clock::now().time_since_epoch();
-        expiry = new std::chrono::system_clock::duration(std::chrono::milliseconds(stoi(exp)) + now);
+        expiry = new std::chrono::system_clock::duration(std::chrono::milliseconds(stoll(exp)) + now);
     }
 }
 

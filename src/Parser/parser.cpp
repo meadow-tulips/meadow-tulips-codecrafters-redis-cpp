@@ -71,7 +71,7 @@ std::string Parser::parseSetCommand(int startIndex, std::unordered_set<DataEntit
         std::string entityValue = tokens[startIndex + 3];
         std::string entityExpiryType = tokens[startIndex + 5];
         std::string entityExpiry = tokens[startIndex + 7];
-        const DataEntity entity = DataEntity(entityKey, entityValue, entityExpiry);
+        const DataEntity entity = DataEntity(entityKey, entityValue, false, entityExpiry);
         entityCollection.insert(entity);
         return "$2\r\nOK\r\n";
     }

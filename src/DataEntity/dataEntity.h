@@ -13,12 +13,12 @@ class DataEntity
 
 public:
     DataEntity(std::string key);
-    DataEntity(std::string, std::string, bool);
-    DataEntity(std::string key, std::string value, std::string exp = "");
+    DataEntity(std::string, std::string, bool = false, std::string exp = "");
+
     bool operator==(const DataEntity &t) const;
     bool operator!=(const DataEntity &other) const;
     bool isEntityExpired() const;
-    bool isEntityFileRelated () const;
+    bool isEntityFileRelated() const;
     friend class DataEntityHashFunction;
     std::string getValue() const;
     std::string getKey() const;

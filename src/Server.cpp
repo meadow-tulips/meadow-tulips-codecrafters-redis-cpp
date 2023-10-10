@@ -35,22 +35,54 @@ bool isMagicString(char *temp)
   return false;
 }
 
-void getNextCharacterAndSkipBytes(std::fstream &fs)
-{
-  char nextCharacter;
-  fs.read(&nextCharacter, 1);
-  fs.seekg((int)nextCharacter, std::ios_base::cur);
-}
-
 char *getNextCharacterAndGatherBytes(std::fstream &fs)
 {
   char nextCharacter;
   fs.read(&nextCharacter, 1);
-  int i = 0;
   char *word = new char[((int)nextCharacter) + 1]();
   fs.read(word, nextCharacter);
-
   return word;
+}
+
+void parseKeyValuePairs(std::fstream &fs, char &characterInMemory, std::unordered_set<DataEntity, DataEntityHashFunction> &entitiesCollection)
+{
+  long unsigned int expiryMs{0};
+  unsigned int expirySec{0};
+  if (ToHex(characterInMemory) == 0xFD)
+  {
+    // Read 4 bytes
+    fs.read((char *)&expirySec, 4);
+    fs.read(&characterInMemory, 1); // value type
+  }
+  else if (ToHex(characterInMemory) == 0xFC)
+  {
+    // Read next 8 bytes
+    std::string hexString;
+    fs.read((char *)&expiryMs, 8);
+    fs.read(&characterInMemory, 1); // value type
+  }
+  std::string key = getNextCharacterAndGatherBytes(fs);
+  std::string value = getNextCharacterAndGatherBytes(fs);
+
+  if (expiryMs == 0 && expirySec == 0)
+  {
+    entitiesCollection.insert(DataEntity(key, value, true));
+    return;
+  }
+
+  long long expiry{0};
+  if (expirySec > 0)
+    expiry = std::chrono::milliseconds(expirySec * 1000).count();
+  else
+    expiry = std::chrono::milliseconds(expiryMs).count();
+
+  std::chrono::system_clock::duration now = std::chrono::system_clock::now().time_since_epoch();
+  auto currentTime = std::chrono::duration_cast<std::chrono::milliseconds>(now).count();
+
+  if (expiry > currentTime)
+  {
+    entitiesCollection.insert(DataEntity(key, value, true, std::to_string(expiry - currentTime)));
+  }
 }
 
 void parseRDB(std::fstream &fs, std::streampos fileSize, std::unordered_set<DataEntity, DataEntityHashFunction> &entitiesCollection)
@@ -58,6 +90,8 @@ void parseRDB(std::fstream &fs, std::streampos fileSize, std::unordered_set<Data
   // Begin reading  MAGIC word first
   char *buffer = new char[6]();
   fs.read(buffer, 5);
+  int totalHashSize = 0;
+
   if (!isMagicString(buffer))
   {
     std::cout << "Not a redis rdb file" << std::endl;
@@ -65,31 +99,28 @@ void parseRDB(std::fstream &fs, std::streampos fileSize, std::unordered_set<Data
   }
   fs.seekg(4, std::ios_base::cur);
   char characterInMemory;
-  while (fs.tellg() < fileSize && (ToHex(characterInMemory) != 0xFF))
+  fs.read(&characterInMemory, 1);
+  while (fs.tellg() < fileSize)
   {
-    fs.read(&characterInMemory, 1);
-    if (ToHex(characterInMemory) == 0xFA)
+    if (ToHex(characterInMemory) == 0xFF)
+      break;
+    if (ToHex(characterInMemory) == 0xFE)
     {
-      getNextCharacterAndSkipBytes(fs);
+      fs.read(&characterInMemory, 1); // DB Selector
+      fs.read(&characterInMemory, 1); // 0xFB
+      fs.read(&characterInMemory, 1); // hash size;
+      totalHashSize += (int)(characterInMemory);
+      fs.read(&characterInMemory, 1); // expiry hash size;
     }
-    else if (ToHex(characterInMemory) == 0xFB)
+    else
     {
-      fs.read(&characterInMemory, 1);
-      int reservedPairs = int(characterInMemory);
-      fs.seekg(1, std::ios::cur);
-      int counter = 0;
-      while (counter < reservedPairs)
+      if (totalHashSize > 0)
       {
-        fs.read(&characterInMemory, 1);
-        if ((ToHex(characterInMemory) == 0xFF))
-          break;
-        std::string key = getNextCharacterAndGatherBytes(fs);
-        std::string value = getNextCharacterAndGatherBytes(fs);
-        std::cout << key << " keyValuePairs " << value << std::endl;
-        entitiesCollection.insert(DataEntity(key, value, true));
-        counter++;
+        parseKeyValuePairs(fs, characterInMemory, entitiesCollection);
+        totalHashSize--;
       }
     }
+    fs.read(&characterInMemory, 1);
   }
 }
 
